@@ -1,13 +1,17 @@
 package gateway
 
 import (
+	"fmt"
 	"net/http"
 	"path"
 	"strings"
 
 	"github.com/golang/glog"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 )
 
+// swaggerServer returns swagger specification files located under "/swagger/"
 func swaggerServer(dir string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, ".swagger.json") {
@@ -38,11 +42,25 @@ func allowCORS(h http.Handler) http.Handler {
 	})
 }
 
+// preflightHandler adds the necessary headers in order to serve
+// CORS from any origin using the methods "GET", "HEAD", "POST", "PUT", "DELETE"
+// We insist, don't do this without consideration in production systems.
 func preflightHandler(w http.ResponseWriter, r *http.Request) {
 	headers := []string{"Content-Type", "Accept"}
 	w.Header().Set("Access-Control-Allow-Headers", strings.Join(headers, ","))
 	methods := []string{"GET", "HEAD", "POST", "PUT", "DELETE"}
 	w.Header().Set("Access-Control-Allow-Methods", strings.Join(methods, ","))
 	glog.Infof("preflight request for %s", r.URL.Path)
-	return
+}
+
+// healthzServer returns a simple health handler which returns ok.
+func healthzServer(conn *grpc.ClientConn) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		if s := conn.GetState(); s != connectivity.Ready {
+			http.Error(w, fmt.Sprintf("grpc server is %s", s), http.StatusBadGateway)
+			return
+		}
+		fmt.Fprintln(w, "ok")
+	}
 }
